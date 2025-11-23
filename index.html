@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>🎬 视频列表</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: #000;
+    color: #fff;
+    font-family: Arial, sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-height: 100vh;
+    padding: 40px 20px;
+  }
+  h1 {
+    font-size: 18px;
+    margin-bottom: 30px;
+    text-align: center;
+    opacity: 0.8;
+  }
+  .video-list {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 15px;
+    width: 100%;
+    max-width: 600px;
+  }
+  /* 使用 A 标签样式模拟原来的按钮 */
+  .video-link {
+    display: inline-block;
+    padding: 12px 20px;
+    font-size: 15px;
+    border: none;
+    border-radius: 8px;
+    background-color: #333;
+    color: white;
+    text-decoration: none; /* 去掉下划线 */
+    cursor: pointer;
+    transition: background-color 0.3s, transform 0.1s;
+    text-align: center;
+    min-width: 100px;
+  }
+  .video-link:hover { background-color: #555; }
+  .video-link:active { background-color: #00c300; transform: scale(0.98); }
+  
+  #loading-tips { opacity: 0.6; }
+</style>
+</head>
+<body>
+
+<h1>请选择视频播放</h1>
+
+<div id="loading-tips">正在获取列表...</div>
+<div class="video-list" id="videoList">
+  </div>
+
+<script>
+  const videoListContainer = document.getElementById('videoList');
+  const loadingTips = document.getElementById('loading-tips');
+
+  // 异步加载 JSON 数据
+  fetch('./links.json?t=' + new Date().getTime()) // 添加时间戳防止 JSON 缓存
+    .then(response => {
+        if (!response.ok) throw new Error('网络请求失败');
+        return response.json();
+    })
+    .then(data => {
+        loadingTips.style.display = 'none';
+        if (Array.isArray(data) && data.length > 0) {
+            data.forEach(item => {
+                const link = document.createElement('a');
+                link.className = 'video-link';
+                link.textContent = item.title;
+                // 构建跳转链接，使用 'v' 作为参数名传递加密地址
+                link.href = `jump.html?v=${encodeURIComponent(item.url_enc)}`;
+                videoListContainer.appendChild(link);
+            });
+        } else {
+            loadingTips.textContent = '暂无视频数据';
+            loadingTips.style.display = 'block';
+        }
+    })
+    .catch(error => {
+        console.error('Error fetching links:', error);
+        loadingTips.textContent = '列表加载失败，请刷新重试';
+        loadingTips.style.color = '#ff4444';
+    });
+</script>
+
+</body>
+</html>

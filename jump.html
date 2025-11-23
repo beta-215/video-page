@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>🎬 正在播放</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: #000;
+    color: #fff;
+    font-family: Arial, sans-serif;
+    display: flex;
+    flex-direction: column;
+    justify-content: center; /* 改为居中 */
+    align-items: center;
+    min-height: 100vh;
+    padding: 20px;
+  }
+  .content-wrapper {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 100%;
+    max-width: 90vw;
+  }
+  /* 修改标题，规避敏感词 */
+  h1 {
+    font-size: 16px;
+    margin-bottom: 20px;
+    text-align: center;
+    opacity: 0.7;
+  }
+  .video-container {
+    position: relative;
+    width: 100%;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.5); /* 增加一点阴影 */
+  }
+  video {
+    width: 100%;
+    height: auto;
+    border-radius: 12px;
+    background: #000;
+    display: block; /* 防止底部出现空隙 */
+  }
+  .loading-overlay {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    background: rgba(0,0,0,0.7); /* 稍微加深背景 */
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    flex-direction: column;
+    pointer-events: none;
+    border-radius: 12px;
+    z-index: 10; /* 确保在最上层 */
+  }
+  /* Loader CSS 保持不变 */
+  .loader {
+    width: 40px; height: 40px;
+    border: 3px solid rgba(255, 255, 255, 0.2);
+    border-top-color: #00ff88;
+    border-radius: 50%;
+    animation: spin 1s linear infinite, pulse 1.5s ease-in-out infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @keyframes pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(0,255,136,0.6); }
+    50% { box-shadow: 0 0 15px 5px rgba(0,255,136,0.3); }
+  }
+  .loading-text {
+    margin-top: 15px;
+    font-size: 14px;
+    color: #00ff88;
+    letter-spacing: 1px;
+    display: flex; align-items: center;
+  }
+  .dots span {
+    opacity: 0; color: #00ff88;
+    text-shadow: 0 0 5px #00ff88;
+    animation: blink 1.5s infinite;
+  }
+  .dots span:nth-child(1) { animation-delay: 0s; }
+  .dots span:nth-child(2) { animation-delay: 0.3s; }
+  .dots span:nth-child(3) { animation-delay: 0.6s; }
+  @keyframes blink {
+    0%, 20% { opacity: 0; }
+    30%, 80% { opacity: 1; }
+    100% { opacity: 0; }
+  }
+  .back-link {
+      margin-top: 30px;
+      color: #888;
+      text-decoration: none;
+      font-size: 14px;
+      padding: 10px 20px;
+      border: 1px solid #444;
+      border-radius: 20px;
+      transition: all 0.3s;
+  }
+  .back-link:hover { color: #fff; border-color: #fff; }
+  #error-message { color: #ff4444; margin-top: 20px; display: none; }
+</style>
+<script src="https://cdn.jsdelivr.net/npm/hls.js@1.4.0/dist/hls.min.js"></script>
+</head>
+<body>
+
+<div class="content-wrapper">
+  <h1>🎬 正在播放...</h1>
+  <div class="video-container">
+    <video id="video" playsinline webkit-playsinline preload="auto" controls></video>
+    <div class="loading-overlay" id="loadingOverlay">
+      <div class="loader"></div>
+      <div class="loading-text">
+        视频加载中<span class="dots"><span>.</span><span>.</span><span>.</span></span>
+      </div>
+    </div>
+  </div>
+  <div id="error-message"></div>
+  <a href="index.html" class="back-link">← 返回列表</a>
+</div>
+
+<script>
+const video = document.getElementById('video');
+const loadingOverlay = document.getElementById('loadingOverlay');
+const errorDiv = document.getElementById('error-message');
+let hls = null;
+
+// 工具函数
+function saveProgress(url, time){ if(time > 5) localStorage.setItem("progress_" + url, time.toFixed(1)); }
+function loadProgress(url){ const t=parseFloat(localStorage.getItem("progress_" + url)); return isNaN(t)?0:t; }
+function showLoading(){ loadingOverlay.style.display='flex'; errorDiv.style.display='none'; }
+function hideLoading(){ loadingOverlay.style.display='none'; }
+function showError(msg) { hideLoading(); errorDiv.textContent = msg; errorDiv.style.display = 'block'; }
+
+function decodeBase64(str){
+  try { return atob(str.replace(/[\r\n\s]/g, "")); }
+  catch(e){ console.error("解码失败", e); return ""; }
+}
+
+// 核心播放逻辑
+function loadVideo(url, resumeTime, isM3U8){
+  if(hls){ hls.destroy(); hls = null; }
+  video.pause();
+  video.removeAttribute('src');
+  video.load(); // 重置 video 元素状态
+
+  if(isM3U8 && typeof Hls !== 'undefined' && Hls.isSupported()){
+    console.log("Using Hls.js");
+    hls = new Hls({
+      maxBufferLength: 30,
+      maxMaxBufferLength: 60,
+      fragLoadingTimeOut: 25000, // 稍微增加超时时间
+      manifestLoadingTimeOut: 25000,
+      enableWorker: true,
+      startFragPrefetch: true
+    });
+    hls.loadSource(url);
+    hls.attachMedia(video);
+
+    hls.on(Hls.Events.MANIFEST_PARSED, () => {
+      if(resumeTime > 0) {
+          console.log("Resuming from:", resumeTime);
+          video.currentTime = resumeTime;
+      }
+      // 尝试自动播放，处理浏览器限制
+      const playPromise = video.play();
+      if (playPromise !== undefined) {
+          playPromise.then(_ => hideLoading())
+          .catch(error => {
+              console.warn("Auto-play prevented:", error);
+              hideLoading();
+              // 可以显示一个巨大的播放按钮让用户手动点
+          });
+      } else {
+        hideLoading();
+      }
+    });
+
+    hls.on(Hls.Events.ERROR, function(event, data){
+      console.error("Hls.js error:", data);
+      if(data.fatal){
+        switch(data.type){
+          case Hls.ErrorTypes.NETWORK_ERROR:
+            console.warn("网络错误，尝试重新加载...");
+            hls.startLoad();
+            break;
+          case Hls.ErrorTypes.MEDIA_ERROR:
+            console.warn("媒体错误，尝试恢复...");
+            hls.recoverMediaError();
+            break;
+          default:
+            showError("视频加载发生不可恢复错误");
+            hls.destroy();
+            break;
+        }
+      }
+    });
+  } else if (video.canPlayType('application/vnd.apple.mpegurl') || !isM3U8) {
+    // 原生支持 HLS (Safari) 或普通 MP4
+    console.log("Using native playback");
+    video.src = url;
+    video.addEventListener('loadedmetadata', function onLoaded(){
+        video.removeEventListener('loadedmetadata', onLoaded);
+        if(resumeTime > 0) video.currentTime = resumeTime;
+        video.play().catch(e => console.warn("Auto-play prevented", e));
+        hideLoading();
+    });
+    video.addEventListener('error', (e) => showError("视频加载失败"));
+  } else {
+    showError("您的浏览器不支持播放此视频格式");
+  }
+
+  // 绑定进度保存事件
+  video.removeEventListener('timeupdate', video._saveHandler);
+  video._saveHandler = ()=>saveProgress(url, video.currentTime);
+  video.addEventListener('timeupdate', video._saveHandler);
+}
+
+// 初始化入口
+function init(){
+  showLoading();
+  // 1. 获取 URL 参数
+  const urlParams = new URLSearchParams(window.location.search);
+  const encStr = urlParams.get('v');
+
+  if(!encStr){
+      showError("未找到视频地址参数，请返回列表页重新进入。");
+      return;
+  }
+
+  // 2. 解码地址
+  const url = decodeBase64(encStr.trim());
+  if(!url || !url.startsWith('http')){
+       showError("视频地址无效。");
+       return;
+  }
+
+  console.log("Ready to load:", url);
+  const isM3U8 = url.includes(".m3u8");
+  
+  // 3. 读取进度并加载
+  // 使用解码后的 URL 作为 key，这样即使 Base64 变了只要最终地址一样就能续播
+  const resumeTime = loadProgress(url); 
+  loadVideo(url, resumeTime, isM3U8);
+}
+
+// 页面加载完成后启动
+document.addEventListener('DOMContentLoaded', init);
+
+video.addEventListener('playing', hideLoading);
+video.addEventListener('waiting', showLoading); // 缓冲时显示 loading
+video.addEventListener('canplay', hideLoading);
+</script>
+</body>
+</html>
